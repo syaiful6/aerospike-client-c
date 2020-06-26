@@ -50,6 +50,7 @@ typedef struct as_batch_task_s {
 	as_error* err;
 	uint32_t* error_mutex;
 	cf_queue* complete_q;
+	uint64_t tranid; // TODO: Remove
 	uint32_t n_keys;
 	as_policy_replica replica_sc;
 	bool use_batch_records;
@@ -96,6 +97,7 @@ typedef struct as_async_batch_command {
  *****************************************************************************/
 
 static const char cluster_empty_error[] = "Batch command failed because cluster is empty.";
+static uint64_t as_tran_counter = 0; // TODO: Remove
 
 /******************************************************************************
  * STATIC FUNCTIONS
@@ -546,8 +548,10 @@ as_batch_command_init(
 }
 
 static as_status
-as_batch_execute_records(as_batch_task_records* btr, as_command* parent)
+as_batch_execute_records(as_batch_task_records* btr, as_error* err, as_command* parent)
 {
+	as_error_reset(err);
+
 	as_batch_task* task = &btr->base;
 	const as_policy_batch* policy = task->policy;
 
@@ -564,8 +568,6 @@ as_batch_execute_records(as_batch_task_records* btr, as_command* parent)
 	size = as_batch_index_records_write(btr->records, &task->offsets, policy, buf,
 										field_count_header, pred_size, NULL);
 
-	as_error err;
-	as_error_init(&err);
 	as_status status;
 
 	if (policy->base.compress && size > AS_COMPRESS_THRESHOLD) {
@@ -573,14 +575,10 @@ as_batch_execute_records(as_batch_task_records* btr, as_command* parent)
 		size_t comp_capacity = as_command_compress_max_size(size);
 		size_t comp_size = comp_capacity;
 		uint8_t* comp_buf = as_command_buffer_init(comp_capacity);
-		status = as_command_compress(&err, buf, size, comp_buf, &comp_size);
+		status = as_command_compress(err, buf, size, comp_buf, &comp_size);
 		as_command_buffer_free(buf, capacity);
 
 		if (status != AEROSPIKE_OK) {
-			// Copy error to main error only once.
-			if (as_fas_uint32(task->error_mutex, 1) == 0) {
-				as_error_copy(task->err, &err);
-			}
 			as_command_buffer_free(comp_buf, comp_capacity);
 			return status;
 		}
@@ -590,24 +588,18 @@ as_batch_execute_records(as_batch_task_records* btr, as_command* parent)
 	}
 
 	as_command cmd;
+
 	as_batch_command_init(&cmd, task, policy, buf, size, parent);
-
-	status = as_command_execute(&cmd, &err);
-
+	status = as_command_execute(&cmd, err);
 	as_command_buffer_free(buf, capacity);
-	
-	if (status) {
-		// Copy error to main error only once.
-		if (as_fas_uint32(task->error_mutex, 1) == 0) {
-			as_error_copy(task->err, &err);
-		}
-	}
 	return status;
 }
 
 static as_status
-as_batch_execute_keys(as_batch_task_keys* btk, as_command* parent)
+as_batch_execute_keys(as_batch_task_keys* btk, as_error* err, as_command* parent)
 {
+	as_error_reset(err);
+
 	as_batch_task* task = &btk->base;
 	const as_policy_batch* policy = task->policy;
 
@@ -725,8 +717,6 @@ as_batch_execute_keys(as_batch_task_keys* btk, as_command* parent)
 	
 	size = as_command_write_end(buf, p);
 	
-	as_error err;
-	as_error_init(&err);
 	as_status status;
 
 	if (policy->base.compress && size > AS_COMPRESS_THRESHOLD) {
@@ -734,14 +724,10 @@ as_batch_execute_keys(as_batch_task_keys* btk, as_command* parent)
 		size_t comp_capacity = as_command_compress_max_size(size);
 		size_t comp_size = comp_capacity;
 		uint8_t* comp_buf = as_command_buffer_init(comp_capacity);
-		status = as_command_compress(&err, buf, size, comp_buf, &comp_size);
+		status = as_command_compress(err, buf, size, comp_buf, &comp_size);
 		as_command_buffer_free(buf, capacity);
 
 		if (status != AEROSPIKE_OK) {
-			// Copy error to main error only once.
-			if (as_fas_uint32(task->error_mutex, 1) == 0) {
-				as_error_copy(task->err, &err);
-			}
 			as_command_buffer_free(comp_buf, comp_capacity);
 			return status;
 		}
@@ -751,18 +737,10 @@ as_batch_execute_keys(as_batch_task_keys* btk, as_command* parent)
 	}
 
 	as_command cmd;
+
 	as_batch_command_init(&cmd, task, policy, buf, size, parent);
-
-	status = as_command_execute(&cmd, &err);
-
+	status = as_command_execute(&cmd, err);
 	as_command_buffer_free(buf, capacity);
-	
-	if (status) {
-		// Copy error to main error only once.
-		if (as_fas_uint32(task->error_mutex, 1) == 0) {
-			as_error_copy(task->err, &err);
-		}
-	}
 	return status;
 }
 
@@ -774,16 +752,24 @@ as_batch_worker(void* data)
 	as_batch_complete_task complete_task;
 	complete_task.node = task->node;
 
+	as_error err;
+
 	if (task->use_batch_records) {
 		// Execute batch referenced in aerospike_batch_read().
-		complete_task.result = as_batch_execute_records((as_batch_task_records*)task, NULL);
+		complete_task.result = as_batch_execute_records((as_batch_task_records*)task, &err, NULL);
 	}
 	else {
 		// Execute batch referenced in aerospike_batch_get(), aerospike_batch_get_bins()
 		// and aerospike_batch_exists().
-		complete_task.result = as_batch_execute_keys((as_batch_task_keys*)task, NULL);
+		complete_task.result = as_batch_execute_keys((as_batch_task_keys*)task, &err, NULL);
 	}
 
+	if (complete_task.result != AEROSPIKE_OK) {
+		// Copy error to main error only once.
+		if (as_fas_uint32(task->error_mutex, 1) == 0) {
+			as_error_copy(task->err, &err);
+		}
+	}
 	cf_queue_push(task->complete_q, &complete_task);
 }
 
@@ -954,6 +940,7 @@ as_batch_keys_execute(
 	btk.base.n_keys = n_keys;
 	btk.base.replica_sc = replica_sc;
 	btk.base.use_batch_records = false;
+	btk.base.tranid = as_aaf_uint64(&as_tran_counter, 1); // TODO: Remove
 	btk.ns = ns;
 	btk.keys = batch->keys.entries;
 	btk.batch = batch;
@@ -1017,7 +1004,7 @@ as_batch_keys_execute(
 			
 			btk.base.node = batch_node->node;
 			memcpy(&btk.base.offsets, &batch_node->offsets, sizeof(as_vector));
-			status = as_batch_execute_keys(&btk, NULL);
+			status = as_batch_execute_keys(&btk, err, NULL);
 		}
 	}
 			
@@ -1035,6 +1022,11 @@ as_batch_keys_execute(
 				as_record_destroy(&br->record);
 			}
 		}
+	}
+
+	// TODO: Remove
+	if (status != AEROSPIKE_OK) {
+		as_log_info("batch final error %" PRIu64 " %d %d %s", btk.base.tranid, status, err->code, err->message);
 	}
 	return status;
 }
@@ -1059,6 +1051,7 @@ as_batch_read_execute_sync(
 	btr.base.n_keys = n_keys;
 	btr.base.replica_sc = replica_sc;
 	btr.base.use_batch_records = true;
+	btr.base.tranid = as_aaf_uint64(&as_tran_counter, 1); // TODO: Remove
 	btr.records = records;
 
 	if (policy->concurrent && n_batch_nodes > 1 && parent == NULL) {
@@ -1113,12 +1106,17 @@ as_batch_read_execute_sync(
 			
 			btr.base.node = batch_node->node;
 			memcpy(&btr.base.offsets, &batch_node->offsets, sizeof(as_vector));
-			status = as_batch_execute_records(&btr, parent);
+			status = as_batch_execute_records(&btr, err, parent);
 		}
 	}
 	
 	// Release each node.
 	as_batch_release_nodes(batch_nodes);
+
+	// TODO: Remove
+	if (status != AEROSPIKE_OK) {
+		as_log_info("batch final error %" PRIu64 " %d %d %s", btr.base.tranid, status, err->code, err->message);
+	}
 	return status;
 }
 
@@ -1348,7 +1346,7 @@ as_batch_records_execute(
  * RETRY FUNCTIONS
  *****************************************************************************/
 
-static bool
+static as_status
 as_batch_retry_records(as_batch_task_records* btr, as_command* parent, as_error* err)
 {
 	as_batch_task* task = &btr->base;
@@ -1359,8 +1357,7 @@ as_batch_retry_records(as_batch_task_records* btr, as_command* parent, as_error*
 
 	if (n_nodes == 0) {
 		as_nodes_release(nodes);
-		as_error_set_message(err, AEROSPIKE_ERR_SERVER, cluster_empty_error);
-		return true;
+		return as_error_set_message(err, AEROSPIKE_ERR_SERVER, cluster_empty_error);
 	}
 
 	as_vector batch_nodes;
@@ -1413,21 +1410,17 @@ as_batch_retry_records(as_batch_task_records* btr, as_command* parent, as_error*
 		as_batch_node* batch_node = as_vector_get(&batch_nodes, 0);
 
 		if (batch_node->node == task->node) {
-			// Batch node is the same.  Go through normal retry.
+			// Batch node is the same.
 			as_batch_release_nodes(&batch_nodes);
-			return false;
+			return AEROSPIKE_USE_NORMAL_RETRY;
 		}
 	}
 
-	// Batch split retry will now be attempted. Reset error code.
-	as_error_reset(err);
-
-	status = as_batch_read_execute_sync(cluster, err, task->policy, task->replica_sc, list,
-										task->n_keys, &batch_nodes, parent);
-	return true;
+	return as_batch_read_execute_sync(cluster, err, task->policy, task->replica_sc, list,
+									  task->n_keys, &batch_nodes, parent);
 }
 
-static bool
+static as_status
 as_batch_retry_keys(as_batch_task_keys* btk, as_command* parent, as_error* err)
 {
 	as_batch_task* task = &btk->base;
@@ -1437,8 +1430,7 @@ as_batch_retry_keys(as_batch_task_keys* btk, as_command* parent, as_error* err)
 
 	if (n_nodes == 0) {
 		as_nodes_release(nodes);
-		as_error_set_message(err, AEROSPIKE_ERR_SERVER, cluster_empty_error);
-		return true;
+		return as_error_set_message(err, AEROSPIKE_ERR_SERVER, cluster_empty_error);
 	}
 
 	as_vector batch_nodes;
@@ -1490,42 +1482,48 @@ as_batch_retry_keys(as_batch_task_keys* btk, as_command* parent, as_error* err)
 		as_batch_node* batch_node = as_vector_get(&batch_nodes, 0);
 
 		if (batch_node->node == task->node) {
-			// Batch node is the same.  Go through normal retry.
+			// Batch node is the same.
 			as_batch_release_nodes(&batch_nodes);
-			return false;
+			return AEROSPIKE_USE_NORMAL_RETRY;
 		}
 	}
 
-	// Batch split retry will now be attempted. Reset error code.
-	as_error_reset(err);
-
-	// Run batch requests sequentially in same thread.
+	// Run batch retries sequentially in same thread.
 	for (uint32_t i = 0; status == AEROSPIKE_OK && i < batch_nodes.size; i++) {
 		as_batch_node* batch_node = as_vector_get(&batch_nodes, i);
 
 		task->node = batch_node->node;
 		memcpy(&task->offsets, &batch_node->offsets, sizeof(as_vector));
-		status = as_batch_execute_keys(btk, parent);
+		status = as_batch_execute_keys(btk, err, parent);
 	}
 
 	// Release each node.
 	as_batch_release_nodes(&batch_nodes);
-	return true;
+	return status;
 }
 
-bool
-as_batch_retry(as_command* parent, as_error* err)
+as_status
+as_batch_retry(as_command* parent, as_error* err, as_status code)
 {
 	// Retry requires keys for this node to be split among other nodes.
 	// This is both recursive and exponential.
 	as_batch_task* task = parent->udata;
+
+	// TODO: Remove
+	as_log_info("batch node error %" PRIu64 " %s %d %d %s", task->tranid,
+				as_node_get_address_string(task->node), code, err->code, err->message);
+
+	if (as_load_uint32(task->error_mutex)) {
+		// No reason to retry when entire batch will fail.
+		return err->code;
+	}
+
 	const as_policy_batch* policy = task->policy;
 	as_policy_replica replica = policy->replica;
 
-	if (!(replica == AS_POLICY_REPLICA_SEQUENCE || replica == AS_POLICY_REPLICA_PREFER_RACK) ||
-		as_load_uint32(task->error_mutex)) {
-		// Node assignment will not change.  Use normal retry.
-		return false;
+	if (!(replica == AS_POLICY_REPLICA_SEQUENCE || replica == AS_POLICY_REPLICA_PREFER_RACK)) {
+		// Node assignment will not change.
+		return AEROSPIKE_USE_NORMAL_RETRY;
 	}
 
 	if (err->code != AEROSPIKE_ERR_TIMEOUT ||
