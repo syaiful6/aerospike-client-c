@@ -745,7 +745,7 @@ as_command_read_messages(as_error* err, as_command* cmd, as_socket* sock, as_nod
 										   size2 - sizeof(as_proto), cmd->udata);
 		}
 		else {
-			as_proto_type_error(err, &proto, AS_MESSAGE_TYPE);
+			status = as_proto_type_error(err, &proto, AS_MESSAGE_TYPE);
 			break;
 		}
 
