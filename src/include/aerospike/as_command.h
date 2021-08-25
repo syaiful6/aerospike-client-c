@@ -499,7 +499,7 @@ as_command_write_bin_name(uint8_t* cmd, const char* name)
 	uint8_t name_len = (uint8_t)(p - cmd - AS_OPERATION_HEADER_SIZE);
 	*(uint32_t*)cmd = cf_swap_to_be32((uint32_t)name_len + 4);
 	cmd += 4;
-	*cmd++ = AS_OPERATOR_READ;
+	*cmd++ = as_operator_protocol_type(AS_OPERATOR_READ);
 	*cmd++ = 0;
 	*cmd++ = 0;
 	*cmd++ = name_len;
