@@ -95,7 +95,7 @@ as_command_key_size(as_policy_key policy, const as_key* key, uint16_t* n_fields)
 }
 
 size_t
-as_command_value_size(as_val* val, as_buffer* buffer)
+as_command_value_size(as_val* val, as_buffers* buffers)
 {
 	switch (val->type) {
 		case AS_NIL: {
@@ -128,11 +128,17 @@ as_command_value_size(as_val* val, as_buffer* buffer)
 		}
 		case AS_LIST:
 		case AS_MAP: {
+			if (! buffers->queue) {
+				buffers->queue = as_queue_create(sizeof(as_buffer), 8);
+			}
+
+			as_buffer buffer;
 			as_serializer ser;
 			as_msgpack_init(&ser);
-			as_serializer_serialize(&ser, val, buffer);
+			as_serializer_serialize(&ser, val, &buffer);
 			as_serializer_destroy(&ser);
-			return buffer->size;
+			as_queue_push(buffers->queue, &buffer);
+			return buffer.size;
 		}
 		default: {
 			return 0;
@@ -328,7 +334,7 @@ as_command_write_key(uint8_t* p, as_policy_key policy, const as_key* key)
 }
 
 uint8_t*
-as_command_write_bin(uint8_t* begin, uint8_t operation_type, const as_bin* bin, as_buffer* buffer)
+as_command_write_bin(uint8_t* begin, as_operator op_type, const as_bin* bin, as_buffers* buffers)
 {
 	uint8_t* p = begin + AS_OPERATION_HEADER_SIZE;
 	const char* name = bin->name;
@@ -422,25 +428,31 @@ as_command_write_bin(uint8_t* begin, uint8_t operation_type, const as_bin* bin, 
 			break;
 		}
 		case AS_LIST: {
-			memcpy(p, buffer->data, buffer->size);
-			p += buffer->size;
-			val_len = buffer->size;
+			as_buffer buffer;
+			as_queue_pop(buffers->queue, &buffer);
+
+			memcpy(p, buffer.data, buffer.size);
+			p += buffer.size;
+			val_len = buffer.size;
 			val_type = AS_BYTES_LIST;
-			cf_free(buffer->data);
+			cf_free(buffer.data);
 			break;
 		}
 		case AS_MAP: {
-			memcpy(p, buffer->data, buffer->size);
-			p += buffer->size;
-			val_len = buffer->size;
+			as_buffer buffer;
+			as_queue_pop(buffers->queue, &buffer);
+
+			memcpy(p, buffer.data, buffer.size);
+			p += buffer.size;
+			val_len = buffer.size;
 			val_type = AS_BYTES_MAP;
-			cf_free(buffer->data);
+			cf_free(buffer.data);
 			break;
 		}
 	}
 	*(uint32_t*)begin = cf_swap_to_be32(name_len + val_len + 4);
 	begin += 4;
-	*begin++ = operation_type;
+	*begin++ = as_operator_protocol_type(op_type);
 	*begin++ = val_type;
 	*begin++ = 0;
 	*begin++ = name_len;

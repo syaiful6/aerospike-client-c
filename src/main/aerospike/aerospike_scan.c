@@ -87,7 +87,7 @@ typedef struct as_scan_builder {
 	as_partition_tracker* pt;
 	as_node_partitions* np;
 	as_buffer argbuffer;
-	as_buffer* opsbuffers;
+	as_buffers opsbuffers;
 	uint64_t max_records;
 	uint32_t predexp_size;
 	uint32_t task_id_offset;
@@ -420,6 +420,7 @@ as_scan_command_size(const as_policy_scan* policy, const as_scan* scan, as_scan_
 	}
 
 	sb->n_fields = n_fields;
+	sb->opsbuffers.queue = NULL;
 
 	// Operations (used in background scans) and bin names (used in foreground scans)
 	// are mutually exclusive.
@@ -427,21 +428,16 @@ as_scan_command_size(const as_policy_scan* policy, const as_scan* scan, as_scan_
 		// Estimate size for background operations.
 		as_operations* ops = scan->ops;
 
-		as_buffer* buffers = cf_malloc(sizeof(as_buffer) * ops->binops.size);
-		memset(buffers, 0, sizeof(as_buffer) * ops->binops.size);
-
 		for (uint16_t i = 0; i < ops->binops.size; i++) {
 			as_binop* op = &ops->binops.entries[i];
-			size += as_command_bin_size(&op->bin, &buffers[i]);
+			size += as_command_bin_size(&op->bin, &sb->opsbuffers);
 		}
-		sb->opsbuffers = buffers;
 	}
 	else {
 		// Estimate size for selected bin names.
 		for (uint16_t i = 0; i < scan->select.size; i++) {
 			size += as_command_string_operation_size(scan->select.entries[i]);
 		}
-		sb->opsbuffers = NULL;
 	}
 	return size;
 }
@@ -547,11 +543,10 @@ as_scan_command_init(
 
 		for (uint16_t i = 0; i < ops->binops.size; i++) {
 			as_binop* op = &ops->binops.entries[i];
-			as_operator o = (op->op == AS_OPERATOR_MAP_MODIFY)? AS_OPERATOR_CDT_MODIFY : op->op;
-			p = as_command_write_bin(p, o, &op->bin, &sb->opsbuffers[i]);
+			p = as_command_write_bin(p, op->op, &op->bin, &sb->opsbuffers);
 		}
 		// We are done with opsbuffers, so we can free here.
-		cf_free(sb->opsbuffers);
+		as_buffers_destroy_shallow(&sb->opsbuffers);
 	}
 	else {
 		for (uint16_t i = 0; i < scan->select.size; i++) {
