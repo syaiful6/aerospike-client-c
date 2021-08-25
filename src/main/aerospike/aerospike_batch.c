@@ -97,6 +97,27 @@ typedef struct as_async_batch_command {
  * STATIC VARIABLES
  *****************************************************************************/
 
+// These values must line up with as_operator enum.
+static bool as_op_is_write[] = {
+	false,
+	true,
+	false,
+	true,
+	false,
+	true,
+	true,
+	false,
+	true,
+	true,
+	true,
+	true,
+	false,
+	true,
+	true,
+	false,
+	true
+};
+
 static const char cluster_empty_error[] = "Batch command failed because cluster is empty.";
 
 /******************************************************************************
@@ -342,7 +363,7 @@ as_batch_estimate_ops(const as_operations* ops, as_error* err, as_buffers* buffe
 	for (uint32_t i = 0; i < n_operations; i++) {
 		as_binop* op = &ops->binops.entries[i];
 
-		if (as_operator_is_write(op->op)) {
+		if (as_op_is_write[op->op]) {
 			return as_error_set_message(err, AEROSPIKE_ERR_PARAM,
 										"Write operations not allowed in batch read");
 		}

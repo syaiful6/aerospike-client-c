@@ -454,7 +454,7 @@ aerospike_batch_get_bins(
  *
  * as_operations ops;
  * as_operations_inita(&ops, 1);
- * as_operations_list_pop_range(&ops, "list", NULL, -2, 1);
+ * as_operations_list_size(&ops, "list", NULL);
  *
  * if (aerospike_batch_get_ops(&as, &err, NULL, &batch, &ops, callback, NULL) != AEROSPIKE_OK ) {
  * 	   fprintf(stderr, "error(%d) %s at [%s:%d]", err.code, err.message, err.file, err.line);

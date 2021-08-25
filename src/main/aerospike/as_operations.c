@@ -21,45 +21,6 @@
 #include "_bin.h"
 
 /******************************************************************************
- * STATIC VARIABLES AND ACCESSORS
- *****************************************************************************/
-
-// These values must line up with as_operator enum.
-static uint8_t as_protocol_types[] = {1, 2, 3, 4, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-
-static bool as_is_writes[] = {
-	false,
-	true,
-	false,
-	true,
-	false,
-	true,
-	true,
-	false,
-	true,
-	true,
-	true,
-	true,
-	false,
-	true,
-	true,
-	false,
-	true
-};
-
-uint8_t
-as_operator_protocol_type(as_operator type)
-{
-	return as_protocol_types[(int)type];
-}
-
-bool
-as_operator_is_write(as_operator type)
-{
-	return as_is_writes[(int)type];
-}
-
-/******************************************************************************
  * STATIC FUNCTIONS
  *****************************************************************************/
 

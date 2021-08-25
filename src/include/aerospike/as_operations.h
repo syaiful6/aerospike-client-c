@@ -731,18 +731,6 @@ as_operations_add_touch(as_operations* ops);
 AS_EXTERN bool
 as_operations_add_delete(as_operations* ops);
 
-/**
- * Return wire protocol type for as_operator.
- */
-AS_EXTERN uint8_t
-as_operator_protocol_type(as_operator type);
-
-/**
- * Is as_operator a write operation.
- */
-AS_EXTERN bool
-as_operator_is_write(as_operator type);
-
 /******************************************************************************
  * LIST FUNCTIONS
  *****************************************************************************/
