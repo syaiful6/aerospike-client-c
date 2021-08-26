@@ -487,7 +487,9 @@ op_insert_record(aerospike* p_as, as_error* err, int val)
 	}
 	as_record_set_list(&rec, bin3, (as_list*)&list);
 
-	return aerospike_key_put(p_as, err, NULL, &key, &rec);
+	as_status status = aerospike_key_put(p_as, err, NULL, &key, &rec);
+	as_record_destroy(&rec);
+	return status;
 }
 
 static as_status
