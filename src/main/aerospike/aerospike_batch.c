@@ -433,7 +433,7 @@ as_batch_size_records(
 				}
 			}
 			else if (record->ops) {
-				size_t s;
+				size_t s = 0;
 				as_status status = as_batch_estimate_ops(record->ops, err, &bb->buffers, &s);
 
 				if (status != AEROSPIKE_OK) {
@@ -757,7 +757,7 @@ as_batch_execute_keys(as_batch_task_keys* btk, as_error* err, as_command* parent
 				}
 			}
 			else if (btk->ops) {
-				size_t s;
+				size_t s = 0;
 				as_status status = as_batch_estimate_ops(btk->ops, err, &buffers, &s);
 
 				if (status != AEROSPIKE_OK) {
