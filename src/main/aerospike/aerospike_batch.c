@@ -330,16 +330,18 @@ as_batch_parse_records(as_error* err, as_node* node, uint8_t* buf, size_t size, 
 
 typedef struct {
 	size_t size;
-	as_buffers buffers;
+	as_queue* buffers;
 	uint8_t* filter_field;
 	uint32_t filter_size;
 	uint16_t field_count_header;
 } as_batch_builder;
 
 static inline void
-as_batch_builder_init(as_batch_builder* bb, uint8_t* filter_field, uint32_t filter_size)
+as_batch_builder_init(
+	as_batch_builder* bb, as_queue* buffers, uint8_t* filter_field, uint32_t filter_size
+	)
 {
-	bb->buffers.queue = NULL;
+	bb->buffers = buffers;
 	bb->filter_field = filter_field;
 	bb->filter_size = filter_size;
 }
@@ -347,11 +349,11 @@ as_batch_builder_init(as_batch_builder* bb, uint8_t* filter_field, uint32_t filt
 static inline void
 as_batch_builder_destroy(as_batch_builder* bb)
 {
-	as_buffers_destroy(&bb->buffers);
+	as_buffers_destroy(bb->buffers);
 }
 
 static as_status
-as_batch_estimate_ops(const as_operations* ops, as_error* err, as_buffers* buffers, size_t* sp)
+as_batch_estimate_ops(const as_operations* ops, as_error* err, as_queue* buffers, size_t* sp)
 {
 	size_t size = 0;
 	uint32_t n_operations = ops->binops.size;
@@ -434,7 +436,7 @@ as_batch_size_records(
 			}
 			else if (record->ops) {
 				size_t s = 0;
-				as_status status = as_batch_estimate_ops(record->ops, err, &bb->buffers, &s);
+				as_status status = as_batch_estimate_ops(record->ops, err, bb->buffers, &s);
 
 				if (status != AEROSPIKE_OK) {
 					return status;
@@ -466,7 +468,7 @@ as_batch_write_fields(
 }
 
 static inline uint8_t*
-as_batch_write_ops(uint8_t* p, const as_operations* ops, as_buffers* buffers)
+as_batch_write_ops(uint8_t* p, const as_operations* ops, as_queue* buffers)
 {
 	uint32_t n_operations = ops->binops.size;
 
@@ -552,7 +554,7 @@ as_batch_index_records_write(
 				p = as_batch_write_fields(p, policy, &record->key, field_count,
 					record->ops->binops.size);
 
-				p = as_batch_write_ops(p, record->ops, &bb->buffers);
+				p = as_batch_write_ops(p, record->ops, bb->buffers);
 			}
 			else {
 				*p++ = (read_attr | (record->read_all_bins? AS_MSG_INFO1_GET_ALL :
@@ -663,8 +665,11 @@ as_batch_execute_records(as_batch_task_records* btr, as_error* err, as_command* 
 	as_batch_task* task = &btr->base;
 	const as_policy_batch* policy = task->policy;
 
+	as_queue buffers;
+	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+
 	as_batch_builder bb;
-	as_batch_builder_init(&bb, NULL, 0);
+	as_batch_builder_init(&bb, &buffers, NULL, 0);
 
 	// Estimate buffer size.
 	as_status status = as_batch_size_records(policy, btr->records, &task->offsets, &bb, err);
@@ -712,7 +717,9 @@ as_batch_execute_keys(as_batch_task_keys* btk, as_error* err, as_command* parent
 
 	as_batch_task* task = &btk->base;
 	const as_policy_batch* policy = task->policy;
-	as_buffers buffers = {NULL};
+
+	as_queue buffers;
+	as_queue_inita(&buffers, sizeof(as_buffer), 8);
 
 	// Estimate buffer size.
 	size_t size = AS_HEADER_SIZE + AS_FIELD_HEADER_SIZE + 5;
@@ -1284,8 +1291,11 @@ as_batch_read_execute_async(
 	// SC master/replica switch is done in as_batch_retry_async().
 	uint8_t flags = AS_ASYNC_FLAGS_READ | AS_ASYNC_FLAGS_MASTER | AS_ASYNC_FLAGS_MASTER_SC;
 
+	as_queue buffers;
+	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+
 	as_batch_builder bb;
-	as_batch_builder_init(&bb, NULL, 0);
+	as_batch_builder_init(&bb, &buffers, NULL, 0);
 
 	as_status status = AEROSPIKE_OK;
 
@@ -1930,8 +1940,11 @@ as_batch_retry_async(as_event_command* parent, bool timeout)
 	uint8_t flags = AS_ASYNC_FLAGS_READ | (parent->flags & AS_ASYNC_FLAGS_MASTER) |
 					(parent->flags & AS_ASYNC_FLAGS_MASTER_SC);
 
+	as_queue buffers;
+	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+
 	as_batch_builder bb;
-	as_batch_builder_init(&bb, filter_field, filter_size);
+	as_batch_builder_init(&bb, &buffers, filter_field, filter_size);
 
 	for (uint32_t i = 0; i < batch_nodes.size; i++) {
 		as_batch_node* batch_node = as_vector_get(&batch_nodes, i);

@@ -87,7 +87,7 @@ typedef struct as_scan_builder {
 	as_partition_tracker* pt;
 	as_node_partitions* np;
 	as_buffer argbuffer;
-	as_buffers opsbuffers;
+	as_queue* opsbuffers;
 	uint64_t max_records;
 	uint32_t predexp_size;
 	uint32_t task_id_offset;
@@ -420,7 +420,6 @@ as_scan_command_size(const as_policy_scan* policy, const as_scan* scan, as_scan_
 	}
 
 	sb->n_fields = n_fields;
-	sb->opsbuffers.queue = NULL;
 
 	// Operations (used in background scans) and bin names (used in foreground scans)
 	// are mutually exclusive.
@@ -430,7 +429,7 @@ as_scan_command_size(const as_policy_scan* policy, const as_scan* scan, as_scan_
 
 		for (uint16_t i = 0; i < ops->binops.size; i++) {
 			as_binop* op = &ops->binops.entries[i];
-			size += as_command_bin_size(&op->bin, &sb->opsbuffers);
+			size += as_command_bin_size(&op->bin, sb->opsbuffers);
 		}
 	}
 	else {
@@ -543,10 +542,8 @@ as_scan_command_init(
 
 		for (uint16_t i = 0; i < ops->binops.size; i++) {
 			as_binop* op = &ops->binops.entries[i];
-			p = as_command_write_bin(p, op->op, &op->bin, &sb->opsbuffers);
+			p = as_command_write_bin(p, op->op, &op->bin, sb->opsbuffers);
 		}
-		// We are done with opsbuffers, so we can free here.
-		as_buffers_destroy_shallow(&sb->opsbuffers);
 	}
 	else {
 		for (uint16_t i = 0; i < scan->select.size; i++) {
@@ -578,9 +575,13 @@ as_scan_command_execute(as_scan_task* task)
 		}
 	}
 
+	as_queue opsbuffers;
+	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
 	as_scan_builder sb;
 	sb.pt = task->pt;
 	sb.np = task->np;
+	sb.opsbuffers = &opsbuffers;
 
 	if (task->pt) {
 		sb.max_records = task->np->record_max;
@@ -592,6 +593,8 @@ as_scan_command_execute(as_scan_task* task)
 	size_t size = as_scan_command_size(task->policy, task->scan, &sb);
 	uint8_t* buf = as_command_buffer_init(size);
 	size = as_scan_command_init(buf, task->policy, task->scan, task->task_id, &sb);
+
+	as_buffers_destroy(&opsbuffers);
 
 	as_command cmd;
 	cmd.cluster = task->cluster;
@@ -1093,17 +1096,23 @@ as_scan_partition_async(
 		return status;
 	}
 
+	as_queue opsbuffers;
+	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
 	// Create scan command buffer without partition fields.
 	// The partition fields will be added later.
 	uint64_t task_id = as_random_get_uint64();
 	as_scan_builder sb;
 	sb.pt = NULL;
 	sb.np = NULL;
+	sb.opsbuffers = &opsbuffers;
 	sb.max_records = 0;
 
 	size_t cmd_size = as_scan_command_size(policy, scan, &sb);
 	uint8_t* cmd_buf = cf_malloc(cmd_size);
 	cmd_size = as_scan_command_init(cmd_buf, policy, scan, task_id, &sb);
+
+	as_buffers_destroy(&opsbuffers);
 
 	as_async_scan_executor* se = cf_malloc(sizeof(as_async_scan_executor));
 	se->listener = listener;

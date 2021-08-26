@@ -195,14 +195,6 @@ typedef struct as_command_parse_result_data_s {
 	bool deserialize;
 } as_command_parse_result_data;
 
-/**
- * @private
- * Queue of list/map serialization buffers.
- */
-typedef struct as_buffers_s {
-	as_queue* queue;
-} as_buffers;
-
 /******************************************************************************
  * FUNCTIONS
  ******************************************************************************/
@@ -212,28 +204,14 @@ typedef struct as_buffers_s {
  * Destroy buffers when error occurs before bins have been written.
  */
 static inline void
-as_buffers_destroy(as_buffers* buffers)
+as_buffers_destroy(as_queue* buffers)
 {
-	if (buffers->queue) {
-		as_buffer b;
+	as_buffer b;
 
-		while (as_queue_pop(buffers->queue, &b)) {
-			cf_free(b.data);
-		}
-		as_queue_destroy(buffers->queue);
+	while (as_queue_pop(buffers, &b)) {
+		cf_free(b.data);
 	}
-}
-
-/**
- * @private
- * Destroy buffers after all bins written and therefore causes empty queue.
- */
-static inline void
-as_buffers_destroy_shallow(as_buffers* buffers)
-{
-	if (buffers->queue) {
-		as_queue_destroy(buffers->queue);
-	}
+	as_queue_destroy(buffers);
 }
 
 /**
@@ -268,14 +246,14 @@ as_command_field_size(size_t size)
  * Calculate size of as_val field.
  */
 size_t
-as_command_value_size(as_val* val, as_buffers* buffers);
+as_command_value_size(as_val* val, as_queue* buffers);
 
 /**
  * @private
  * Calculate size of bin name and value combined.
  */
 static inline size_t
-as_command_bin_size(const as_bin* bin, as_buffers* buffers)
+as_command_bin_size(const as_bin* bin, as_queue* buffers)
 {
 	return strlen(bin->name) + as_command_value_size((as_val*)bin->valuep, buffers) + 8;
 }
@@ -496,7 +474,7 @@ as_command_write_bin_name(uint8_t* cmd, const char* name);
  */
 uint8_t*
 as_command_write_bin(
-	uint8_t* begin, as_operator operation_type, const as_bin* bin, as_buffers* buffers
+	uint8_t* begin, as_operator operation_type, const as_bin* bin, as_queue* buffers
 	);
 
 /**

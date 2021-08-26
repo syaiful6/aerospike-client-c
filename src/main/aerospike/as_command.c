@@ -102,7 +102,7 @@ as_command_key_size(as_policy_key policy, const as_key* key, uint16_t* n_fields)
 }
 
 size_t
-as_command_value_size(as_val* val, as_buffers* buffers)
+as_command_value_size(as_val* val, as_queue* buffers)
 {
 	switch (val->type) {
 		case AS_NIL: {
@@ -135,16 +135,12 @@ as_command_value_size(as_val* val, as_buffers* buffers)
 		}
 		case AS_LIST:
 		case AS_MAP: {
-			if (! buffers->queue) {
-				buffers->queue = as_queue_create(sizeof(as_buffer), 8);
-			}
-
 			as_buffer buffer;
 			as_serializer ser;
 			as_msgpack_init(&ser);
 			as_serializer_serialize(&ser, val, &buffer);
 			as_serializer_destroy(&ser);
-			as_queue_push(buffers->queue, &buffer);
+			as_queue_push(buffers, &buffer);
 			return buffer.size;
 		}
 		default: {
@@ -360,7 +356,7 @@ as_command_write_bin_name(uint8_t* cmd, const char* name)
 }
 
 uint8_t*
-as_command_write_bin(uint8_t* begin, as_operator op_type, const as_bin* bin, as_buffers* buffers)
+as_command_write_bin(uint8_t* begin, as_operator op_type, const as_bin* bin, as_queue* buffers)
 {
 	uint8_t* p = begin + AS_OPERATION_HEADER_SIZE;
 	const char* name = bin->name;
@@ -455,8 +451,7 @@ as_command_write_bin(uint8_t* begin, as_operator op_type, const as_bin* bin, as_
 		}
 		case AS_LIST: {
 			as_buffer buffer;
-			as_queue_pop(buffers->queue, &buffer);
-
+			as_queue_pop(buffers, &buffer);
 			memcpy(p, buffer.data, buffer.size);
 			p += buffer.size;
 			val_len = buffer.size;
@@ -466,8 +461,7 @@ as_command_write_bin(uint8_t* begin, as_operator op_type, const as_bin* bin, as_
 		}
 		case AS_MAP: {
 			as_buffer buffer;
-			as_queue_pop(buffers->queue, &buffer);
-
+			as_queue_pop(buffers, &buffer);
 			memcpy(p, buffer.data, buffer.size);
 			p += buffer.size;
 			val_len = buffer.size;
