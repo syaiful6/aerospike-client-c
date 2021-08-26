@@ -628,6 +628,7 @@ batch_read_operate_complex(aerospike* p_as, as_error* err)
 	as_exp_destroy(exp3);
 
 	if (status != AEROSPIKE_OK) {
+		as_batch_read_destroy(&records);
 		return status;
 	}
 
@@ -667,6 +668,7 @@ batch_read_operate_complex(aerospike* p_as, as_error* err)
 		}
 	}
 
+	as_batch_read_destroy(&records);
 	LOG("batch_read_operate_complex end");
 	return AEROSPIKE_OK;
 }
