@@ -540,7 +540,7 @@ batch_read_operate(aerospike* p_as, as_error* err)
 	as_batch batch;
 	as_batch_inita(&batch, size);
 
-	for (uint32_t i = 0; i < size; i++) {
+	for (int i = 0; i < size; i++) {
 		as_key_init_int64(as_batch_keyat(&batch, i), g_namespace, g_set, i + 1);
 	}
 
@@ -711,7 +711,7 @@ batch_list_operate(aerospike* p_as, as_error* err)
 	as_batch batch;
 	as_batch_inita(&batch, size);
 
-	for (uint32_t i = 0; i < size; i++) {
+	for (int i = 0; i < size; i++) {
 		as_key_init_int64(as_batch_keyat(&batch, i), g_namespace, g_set, i + 1);
 	}
 
