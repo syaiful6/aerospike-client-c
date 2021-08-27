@@ -589,7 +589,7 @@ aerospike_key_put(
 	}
 
 	as_queue buffers;
-	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+	as_queue_inita(&buffers, sizeof(as_buffer), rec->bins.size);
 
 	as_put put;
 	size_t size = as_put_init(&put, policy, key, rec, &buffers);
@@ -629,7 +629,7 @@ aerospike_key_put_async_ex(
 	}
 
 	as_queue buffers;
-	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+	as_queue_inita(&buffers, sizeof(as_buffer), rec->bins.size);
 
 	as_put put;
 	size_t size = as_put_init(&put, policy, key, rec, &buffers);
@@ -955,7 +955,7 @@ aerospike_key_operate(
 	}
 
 	as_queue buffers;
-	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+	as_queue_inita(&buffers, sizeof(as_buffer), n_operations);
 
 	as_policy_operate policy_local;
 	as_operate oper;
@@ -1006,7 +1006,7 @@ aerospike_key_operate_async(
 	}
 
 	as_queue buffers;
-	as_queue_inita(&buffers, sizeof(as_buffer), 8);
+	as_queue_inita(&buffers, sizeof(as_buffer), n_operations);
 
 	as_policy_operate policy_local;
 	as_operate oper;

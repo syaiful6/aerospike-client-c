@@ -832,6 +832,7 @@ as_query_command_init(
 			as_binop* op = &ops->binops.entries[i];
 			p = as_command_write_bin(p, op->op, &op->bin, opsbuffers);
 		}
+		as_buffers_destroy(opsbuffers);
 	}
 	else {
 		// Estimate size for selected bin names on scan (query bin names already handled).
@@ -871,7 +872,10 @@ as_query_execute(as_query_task* task, const as_query* query, as_nodes* nodes, ui
 															  &task->write_policy->base;
 
 	as_queue opsbuffers;
-	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
+	if (query->ops) {
+		as_queue_inita(&opsbuffers, sizeof(as_buffer), query->ops->binops.size);
+	}
 
 	size_t size = as_query_command_size(base_policy, query, &n_fields, &filter_size, &predexp_size,
 			&bin_name_size, &argbuffer, &opsbuffers);
@@ -880,8 +884,6 @@ as_query_execute(as_query_task* task, const as_query* query, as_nodes* nodes, ui
 			task->write_policy, task->task_id, n_fields, filter_size, predexp_size,
 			bin_name_size, &argbuffer, &opsbuffers);
 
-	as_buffers_destroy(&opsbuffers);
-	
 	task->cmd = cmd;
 	task->cmd_size = size;
 	task->complete_q = cf_queue_create(sizeof(as_query_complete_task), true);
@@ -1219,15 +1221,16 @@ aerospike_query_async(
 	uint16_t n_fields = 0;
 	
 	as_queue opsbuffers;
-	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
+	if (query->ops) {
+		as_queue_inita(&opsbuffers, sizeof(as_buffer), query->ops->binops.size);
+	}
 
 	size_t size = as_query_command_size(&policy->base, query, &n_fields, &filter_size,
 			&predexp_size, &bin_name_size, &argbuffer, &opsbuffers);
 	uint8_t* cmd_buf = as_command_buffer_init(size);
 	size = as_query_command_init(cmd_buf, query, QUERY_FOREGROUND, &policy->base, policy, NULL,
 			task_id, n_fields, filter_size, predexp_size, bin_name_size, &argbuffer, &opsbuffers);
-
-	as_buffers_destroy(&opsbuffers);
 
 	// Allocate enough memory to cover, then, round up memory size in 8KB increments to allow socket
 	// read to reuse buffer.

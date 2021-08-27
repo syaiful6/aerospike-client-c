@@ -544,6 +544,7 @@ as_scan_command_init(
 			as_binop* op = &ops->binops.entries[i];
 			p = as_command_write_bin(p, op->op, &op->bin, sb->opsbuffers);
 		}
+		as_buffers_destroy(sb->opsbuffers);
 	}
 	else {
 		for (uint16_t i = 0; i < scan->select.size; i++) {
@@ -576,7 +577,10 @@ as_scan_command_execute(as_scan_task* task)
 	}
 
 	as_queue opsbuffers;
-	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
+	if (task->scan->ops) {
+		as_queue_inita(&opsbuffers, sizeof(as_buffer), task->scan->ops->binops.size);
+	}
 
 	as_scan_builder sb;
 	sb.pt = task->pt;
@@ -593,8 +597,6 @@ as_scan_command_execute(as_scan_task* task)
 	size_t size = as_scan_command_size(task->policy, task->scan, &sb);
 	uint8_t* buf = as_command_buffer_init(size);
 	size = as_scan_command_init(buf, task->policy, task->scan, task->task_id, &sb);
-
-	as_buffers_destroy(&opsbuffers);
 
 	as_command cmd;
 	cmd.cluster = task->cluster;
@@ -1097,7 +1099,10 @@ as_scan_partition_async(
 	}
 
 	as_queue opsbuffers;
-	as_queue_inita(&opsbuffers, sizeof(as_buffer), 8);
+
+	if (scan->ops) {
+		as_queue_inita(&opsbuffers, sizeof(as_buffer), scan->ops->binops.size);
+	}
 
 	// Create scan command buffer without partition fields.
 	// The partition fields will be added later.
@@ -1111,8 +1116,6 @@ as_scan_partition_async(
 	size_t cmd_size = as_scan_command_size(policy, scan, &sb);
 	uint8_t* cmd_buf = cf_malloc(cmd_size);
 	cmd_size = as_scan_command_init(cmd_buf, policy, scan, task_id, &sb);
-
-	as_buffers_destroy(&opsbuffers);
 
 	as_async_scan_executor* se = cf_malloc(sizeof(as_async_scan_executor));
 	se->listener = listener;
